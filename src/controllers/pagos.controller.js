@@ -11,14 +11,27 @@ export const agregarPago = async (req, res) => {
       return res.status(400).json({ message: "Faltan datos obligatorios (nombre, mes)" });
     }
 
-    // 1. Traemos el monto fijo de la configuración
+    // 1. Verificar si ya existe un pago para este socio en este mes
+    const [pagoExistente] = await pool.query(
+      "SELECT id FROM pagos WHERE nombre = ? AND mes = ?",
+      [nombre, mes]
+    );
+
+    if (pagoExistente.length > 0) {
+      return res.status(409).json({ 
+        message: `El guerrero "${nombre}" ya tiene un pago registrado para ${mes}`,
+        duplicate: true
+      });
+    }
+
+    // 2. Traemos el monto fijo de la configuración
     const [configRows] = await pool.query("SELECT monto_cuota FROM configuracion LIMIT 1");
     if (configRows.length === 0) {
       return res.status(500).json({ message: "No hay monto configurado en la base de datos" });
     }
     const monto = configRows[0].monto_cuota;
 
-    // 2. Insertamos el pago
+    // 3. Insertamos el pago
     const [result] = await pool.query(
       "INSERT INTO pagos (nombre, alias, mes, monto) VALUES (?, ?, ?, ?)",
       [nombre, alias || null, mes, monto]
@@ -38,7 +51,6 @@ export const agregarPago = async (req, res) => {
 export const obtenerPagosPorMes = async (req, res) => {
   try {
     const { mes } = req.params;
-    console.log("Verificando token en obtenerPagosPorMes", mes);
 
     // 1. Traemos todos los pagos de ese mes
     const [rows] = await pool.query("SELECT * FROM pagos WHERE mes = ?", [mes]);
@@ -47,10 +59,17 @@ export const obtenerPagosPorMes = async (req, res) => {
     const totalRecaudado = rows.reduce((acc, pago) => acc + parseFloat(pago.monto), 0);
     const cantidad = rows.length;
 
+    // 3. Total de socios únicos (histórico)
+    const [sociosResult] = await pool.query(
+      "SELECT COUNT(DISTINCT nombre) as total FROM pagos"
+    );
+    const totalSociosHistoricos = sociosResult[0]?.total || 0;
+
     res.json({
       mes,
       cantidad,
       totalRecaudado,
+      totalSociosHistoricos,
       pagos: rows,
     });
   } catch (error) {
