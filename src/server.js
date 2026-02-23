@@ -12,7 +12,8 @@ import { inicializarBaseDatos } from "./config/setup.js";
 // ✅ Configuración de CORS
 const allowedOrigins = [
   "http://localhost:5173",         // React local
-  "https://viggo-gym.netlify.app"  // Frontend en Netlify
+  "https://viggo-gym.netlify.app",  // Frontend en Netlify
+  "https://backend-production-08b3.up.railway.app"  // Backend en Railway
 ];
 
 const app = express();
@@ -42,7 +43,7 @@ app.get("/", (req, res) => {
 });
 
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
 });
