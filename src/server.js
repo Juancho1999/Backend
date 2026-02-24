@@ -43,19 +43,37 @@ app.get("/", (req, res) => {
 });
 
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en puerto ${PORT}`);
-});
+const PORT = process.env.PORT || 4000;
 
-(async () => {
-  try {
-    const [rows] = await pool.query("SELECT 1 + 1 AS result");
-    console.log("Conexión a MySQL OK ✅", rows[0].result);
-    
-    // Inicializar base de datos con datos de ejemplo
-    await inicializarBaseDatos();
-  } catch (error) {
-    console.error("Error al conectar a MySQL ❌", error);
-  }
-})();
+// ✅ Para Vercel: exportar app
+if (process.env.VERCEL) {
+  // En Vercel, la inicialización se hace en cada request
+  (async () => {
+    try {
+      const [rows] = await pool.query("SELECT 1 + 1 AS result");
+      console.log("Conexión a MySQL OK ✅", rows[0].result);
+      await inicializarBaseDatos();
+    } catch (error) {
+      console.error("Error al conectar a MySQL ❌", error);
+    }
+  })();
+} else {
+  // Local/Railway: servidor normal
+  app.listen(PORT, () => {
+    console.log(`Servidor corriendo en puerto ${PORT}`);
+  });
+
+  (async () => {
+    try {
+      const [rows] = await pool.query("SELECT 1 + 1 AS result");
+      console.log("Conexión a MySQL OK ✅", rows[0].result);
+      
+      // Inicializar base de datos con datos de ejemplo
+      await inicializarBaseDatos();
+    } catch (error) {
+      console.error("Error al conectar a MySQL ❌", error);
+    }
+  })();
+}
+
+export default app;
