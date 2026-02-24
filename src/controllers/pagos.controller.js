@@ -1,5 +1,13 @@
 // src/controllers/pagos.controller.js
-import {pool } from "../config/db.js";
+import { 
+  obtenerPagosPorMes, 
+  crearPago, 
+  eliminarPago,
+  obtenerTodosPagos,
+  obtenerSociosUnicos,
+  obtenerConfiguracion
+} from "../config/firestore.js";
+import { db } from "../config/firebase-admin.js";
 
 // 👉 Agregar un nuevo pago
 export const agregarPago = async (req, res) => {
@@ -12,12 +20,10 @@ export const agregarPago = async (req, res) => {
     }
 
     // 1. Verificar si ya existe un pago para este socio en este mes
-    const [pagoExistente] = await pool.query(
-      "SELECT id FROM pagos WHERE nombre = ? AND mes = ?",
-      [nombre, mes]
-    );
+    const pagosMes = await obtenerPagosPorMes(mes);
+    const pagoExistente = pagosMes.find(p => p.nombre === nombre);
 
-    if (pagoExistente.length > 0) {
+    if (pagoExistente) {
       return res.status(409).json({ 
         message: `El guerrero "${nombre}" ya tiene un pago registrado para ${mes}`,
         duplicate: true
@@ -25,21 +31,15 @@ export const agregarPago = async (req, res) => {
     }
 
     // 2. Traemos el monto fijo de la configuración
-    const [configRows] = await pool.query("SELECT monto_cuota FROM configuracion LIMIT 1");
-    if (configRows.length === 0) {
-      return res.status(500).json({ message: "No hay monto configurado en la base de datos" });
-    }
-    const monto = configRows[0].monto_cuota;
+    const config = await obtenerConfiguracion();
+    const monto = config.monto_cuota;
 
     // 3. Insertamos el pago
-    const [result] = await pool.query(
-      "INSERT INTO pagos (nombre, alias, mes, monto) VALUES (?, ?, ?, ?)",
-      [nombre, alias || null, mes, monto]
-    );
+    const nuevoPago = await crearPago({ nombre, alias: alias || "", mes, monto });
 
     res.status(201).json({
       message: "Pago registrado con éxito",
-      pago: { id: result.insertId, nombre, alias, mes, monto },
+      pago: { id: nuevoPago.id, nombre, alias, mes, monto },
     });
   } catch (error) {
     console.error("Error en agregarPago:", error);
@@ -53,24 +53,23 @@ export const obtenerPagosPorMes = async (req, res) => {
     const { mes } = req.params;
 
     // 1. Traemos todos los pagos de ese mes
-    const [rows] = await pool.query("SELECT * FROM pagos WHERE mes = ?", [mes]);
+    const pagos = await obtenerPagosPorMes(mes);
 
     // 2. Calcular totales
-    const totalRecaudado = rows.reduce((acc, pago) => acc + parseFloat(pago.monto), 0);
-    const cantidad = rows.length;
+    const totalRecaudado = pagos.reduce((acc, pago) => acc + (parseFloat(pago.monto) || 0), 0);
+    const cantidad = pagos.length;
 
     // 3. Total de socios únicos (histórico)
-    const [sociosResult] = await pool.query(
-      "SELECT COUNT(DISTINCT nombre) as total FROM pagos"
-    );
-    const totalSociosHistoricos = sociosResult[0]?.total || 0;
+    const todosPagos = await obtenerTodosPagos();
+    const sociosUnicos = new Set(todosPagos.map(p => p.nombre).filter(n => n));
+    const totalSociosHistoricos = sociosUnicos.size;
 
     res.json({
       mes,
       cantidad,
       totalRecaudado,
       totalSociosHistoricos,
-      pagos: rows,
+      pagos: pagos,
     });
   } catch (error) {
     console.error("Error en obtenerPagosPorMes:", error);
@@ -78,47 +77,44 @@ export const obtenerPagosPorMes = async (req, res) => {
   }
 };
 
-// 🔹 Obtener lista de nombres de socios únicos
-// 🔹 Obtener lista de nombres de socios únicos (nombre + alias)
-// 🔹 Obtener lista de nombres de socios únicos (nombre + alias)
+// 👉 Obtener lista de nombres de socios únicos
 export const obtenerSociosHistoricos = async (req, res) => {
   try {
-    // ✅ Usamos pool, no db
-    const [rows] = await pool.query(
-      `SELECT DISTINCT nombre, alias 
-       FROM pagos 
-       WHERE nombre IS NOT NULL 
-       ORDER BY nombre ASC`
+    const pagos = await obtenerTodosPagos();
+    
+    // Obtener socios únicos con sus alias
+    const sociosMap = new Map();
+    pagos.forEach(p => {
+      if (p.nombre) {
+        if (!sociosMap.has(p.nombre)) {
+          sociosMap.set(p.nombre, { nombre: p.nombre, alias: p.alias || "" });
+        }
+      }
+    });
+
+    const socios = Array.from(sociosMap.values()).sort((a, b) => 
+      a.nombre.localeCompare(b.nombre)
     );
-
-    // En caso de no haber datos, devolvemos array vacío
-    if (!rows || rows.length === 0) {
-      return res.json([]);
-    }
-
-    // ✅ Normalizamos los datos para evitar nulls
-    const socios = rows.map((r) => ({
-      nombre: r.nombre,
-      alias: r.alias || "",
-    }));
 
     res.json(socios);
   } catch (error) {
-    console.error("Error al obtener nombres y alias:", error);
-    res.status(500).json({ message: "Error al obtener nombres y alias" });
+    console.error("Error al obtener socios históricos:", error);
+    res.status(500).json({ message: "Error al obtener socios históricos" });
   }
 };
 
-
-// ✅ Eliminar un pago
+// 👉 Eliminar un pago
 export const deletePago = async (req, res) => {
   const { id } = req.params;
   try {
-    const [result] = await pool.query('DELETE FROM pagos WHERE id = ?', [id]);
-
-    if (result.affectedRows === 0) {
+    // En Firestore, verificamos si existe buscando en la colección
+    const pagosSnapshot = await db.collection("pagos").doc(id).get();
+    
+    if (!pagosSnapshot.exists) {
       return res.status(404).json({ message: 'Pago no encontrado' });
     }
+
+    await eliminarPago(id);
 
     res.json({ message: 'Pago eliminado correctamente' });
   } catch (error) {
@@ -126,8 +122,3 @@ export const deletePago = async (req, res) => {
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
-
-
-
-
-

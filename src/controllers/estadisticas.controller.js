@@ -1,58 +1,61 @@
-import { pool } from "../config/db.js";
+import { obtenerTodosPagos, obtenerPagosPorAnio, obtenerAniosConPagos, obtenerMesesPorAnio } from "../config/firestore.js";
 
 // 👉 Obtener estadísticas anuales
 export const obtenerEstadisticas = async (req, res) => {
   try {
     const anioActual = new Date().getFullYear().toString();
     
-    // 1. Obtener pagos agrupados por mes del año actual
-    const [pagosPorMes] = await pool.query(
-      `SELECT 
-        mes,
-        COUNT(*) as cantidad,
-        SUM(monto) as total
-      FROM pagos 
-      WHERE mes LIKE ? 
-      GROUP BY mes 
-      ORDER BY mes ASC`,
-      [`${anioActual}-%`]
-    );
+    // 1. Obtener todos los pagos
+    const todosPagos = await obtenerTodosPagos();
+    
+    // 2. Pagos del año actual agrupados por mes
+    const pagosAnioActual = todosPagos.filter(p => p.mes && p.mes.startsWith(anioActual));
+    
+    const pagosPorMes = {};
+    pagosAnioActual.forEach(p => {
+      if (!pagosPorMes[p.mes]) {
+        pagosPorMes[p.mes] = { cantidad: 0, total: 0 };
+      }
+      pagosPorMes[p.mes].cantidad++;
+      pagosPorMes[p.mes].total += parseFloat(p.monto) || 0;
+    });
 
-    // 2. Total de socios únicos (histórico)
-    const [totalSocios] = await pool.query(
-      `SELECT COUNT(DISTINCT nombre) as total FROM pagos`
-    );
+    const pagosPorMesArray = Object.keys(pagosPorMes).sort().map(mes => ({
+      mes,
+      cantidad: pagosPorMes[mes].cantidad,
+      total: pagosPorMes[mes].total
+    }));
 
-    // 3. Pagos del mes actual
+    // 3. Total de socios únicos (histórico)
+    const sociosUnicos = new Set(todosPagos.map(p => p.nombre).filter(n => n));
+    const totalSociosHistoricos = sociosUnicos.size;
+
+    // 4. Pagos del mes actual
     const mesActual = `${anioActual}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-    const [pagosMesActual] = await pool.query(
-      `SELECT COUNT(*) as cantidad, SUM(monto) as total FROM pagos WHERE mes = ?`,
-      [mesActual]
-    );
+    const pagosDelMes = pagosAnioActual.filter(p => p.mes === mesActual);
+    const totalMesActual = pagosDelMes.reduce((acc, p) => acc + (parseFloat(p.monto) || 0), 0);
 
-    // 4. Últimos 5 pagos de personas únicas
-    const [ultimosPagos] = await pool.query(
-      `SELECT DISTINCT nombre, alias, mes, MAX(id) as id, MAX(fecha_pago) as fecha_pago
-       FROM pagos 
-       GROUP BY nombre 
-       ORDER BY id DESC 
-       LIMIT 5`
-    );
+    // 5. Últimos 5 pagos de personas únicas
+    const ultimosSocios = new Map();
+    todosPagos.forEach(p => {
+      if (p.nombre && !ultimosSocios.has(p.nombre)) {
+        ultimosSocios.set(p.nombre, p);
+      }
+    });
+    const ultimosPagos = Array.from(ultimosSocios.values())
+      .sort((a, b) => new Date(b.fecha_pago || 0) - new Date(a.fecha_pago || 0))
+      .slice(0, 5);
 
-    // 5. Total recaudado en el año
-    const totalAnual = pagosPorMes.reduce((acc, mes) => acc + parseFloat(mes.total || 0), 0);
+    // 6. Total recaudado en el año
+    const totalAnual = Object.values(pagosPorMes).reduce((acc, m) => acc + m.total, 0);
 
     res.json({
       anio: anioActual,
-      pagosPorMes: pagosPorMes.map(p => ({
-        mes: p.mes,
-        cantidad: parseInt(p.cantidad),
-        total: parseFloat(p.total || 0)
-      })),
-      totalSociosHistoricos: parseInt(totalSocios[0].total),
+      pagosPorMes: pagosPorMesArray,
+      totalSociosHistoricos,
       mesActual: {
-        cantidad: parseInt(pagosMesActual[0].cantidad || 0),
-        total: parseFloat(pagosMesActual[0].total || 0)
+        cantidad: pagosDelMes.length,
+        total: totalMesActual
       },
       ultimosPagos: ultimosPagos.map(p => ({
         id: p.id,

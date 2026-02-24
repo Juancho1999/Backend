@@ -1,15 +1,9 @@
-import { pool } from "../config/db.js";
+import { obtenerTodosPagos, obtenerAniosConPagos as getAnios, obtenerMesesPorAnio as getMeses } from "../config/firestore.js";
 
 // 👉 Obtener años con pagos
 export const obtenerAniosConPagos = async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      `SELECT DISTINCT SUBSTRING(mes, 1, 4) as anio 
-       FROM pagos 
-       ORDER BY anio DESC`
-    );
-
-    const anios = rows.map(r => r.anio);
+    const anios = await getAnios();
     res.json(anios);
   } catch (error) {
     console.error("Error en obtenerAniosConPagos:", error);
@@ -21,16 +15,7 @@ export const obtenerAniosConPagos = async (req, res) => {
 export const obtenerMesesPorAnio = async (req, res) => {
   try {
     const { anio } = req.params;
-    
-    const [rows] = await pool.query(
-      `SELECT DISTINCT mes 
-       FROM pagos 
-       WHERE mes LIKE ? 
-       ORDER BY mes ASC`,
-      [`${anio}-%`]
-    );
-
-    const meses = rows.map(r => r.mes);
+    const meses = await getMeses(anio);
     res.json(meses);
   } catch (error) {
     console.error("Error en obtenerMesesPorAnio:", error);
@@ -43,37 +28,41 @@ export const obtenerReporteAnual = async (req, res) => {
   try {
     const { anio } = req.params;
     
-    // Obtener resumen por mes del año especificado
-    const [rows] = await pool.query(
-      `SELECT 
-         mes,
-         COUNT(*) as cantidad_pagos,
-         SUM(monto) as total_recaudado
-       FROM pagos 
-       WHERE mes LIKE ? 
-       GROUP BY mes 
-       ORDER BY mes ASC`,
-      [`${anio}-%`]
-    );
+    // Obtener todos los pagos
+    const todosPagos = await obtenerTodosPagos();
+    
+    // Filtrar por año
+    const pagosDelAnio = todosPagos.filter(p => p.mes && p.mes.startsWith(anio));
+    
+    // Agrupar por mes
+    const mesesData = {};
+    pagosDelAnio.forEach(p => {
+      if (!mesesData[p.mes]) {
+        mesesData[p.mes] = { cantidad_pagos: 0, total_recaudado: 0 };
+      }
+      mesesData[p.mes].cantidad_pagos++;
+      mesesData[p.mes].total_recaudado += parseFloat(p.monto) || 0;
+    });
+
+    const rows = Object.keys(mesesData).sort().map(mes => ({
+      mes,
+      cantidad_pagos: mesesData[mes].cantidad_pagos,
+      total_recaudado: mesesData[mes].total_recaudado
+    }));
 
     // Calcular totales del año
-    const totalPagosAnio = rows.reduce((acc, r) => acc + parseInt(r.cantidad_pagos), 0);
-    const totalRecaudadoAnio = rows.reduce((acc, r) => acc + parseFloat(r.total_recaudado || 0), 0);
+    const totalPagosAnio = rows.reduce((acc, r) => acc + r.cantidad_pagos, 0);
+    const totalRecaudadoAnio = rows.reduce((acc, r) => acc + r.total_recaudado, 0);
 
     // Obtener cantidad de personas únicas que pagaron en el año
-    const [sociosAnio] = await pool.query(
-      `SELECT COUNT(DISTINCT nombre) as cantidad_personas 
-       FROM pagos 
-       WHERE mes LIKE ?`,
-      [`${anio}-%`]
-    );
+    const personasUnicas = new Set(pagosDelAnio.map(p => p.nombre).filter(n => n));
 
     res.json({
       anio,
       meses: rows,
       totalPagos: totalPagosAnio,
       totalRecaudado: totalRecaudadoAnio,
-      personasUnicas: sociosAnio[0]?.cantidad_personas || 0,
+      personasUnicas: personasUnicas.size,
     });
   } catch (error) {
     console.error("Error en obtenerReporteAnual:", error);

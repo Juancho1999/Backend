@@ -1,30 +1,36 @@
-import { pool } from "../config/db.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { enviarEmailRecupero } from "../config/email.js";
+import { 
+  obtenerAdminPorEmail, 
+  obtenerAdminPorId, 
+  crearAdmin, 
+  actualizarAdmin 
+} from "../config/firestore.js";
+import { db } from "../config/firebase-admin.js";
 
 console.log("JWT_SECRET:", process.env.JWT_SECRET);
+
+// Colección para password_resets
+const PASSWORD_RESETS = "password_resets";
 
 // 👉 Login de administrador
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
     
-
     if (!email || !password) {
       return res.status(400).json({ message: "Email y contraseña son requeridos" });
     }
 
-    // 1. Buscar admin por email
-    const [rows] = await pool.query("SELECT * FROM admin WHERE email = ?", [email]);
-    if (rows.length === 0) {
+    // 1. Buscar admin por email en Firestore
+    const admin = await obtenerAdminPorEmail(email);
+    
+    if (!admin) {
       return res.status(401).json({ message: "Credenciales inválidas" });
     }
 
-    const admin = rows[0];
-
-     //2. Comparar contraseñas
+    // 2. Comparar contraseñas
     const esValido = await bcrypt.compare(password, admin.password);
     if (!esValido) {
       return res.status(401).json({ message: "Credenciales inválidas" });
@@ -59,16 +65,19 @@ export const obtenerPerfil = async (req, res) => {
   try {
     const adminId = req.user.id;
     
-    const [rows] = await pool.query(
-      "SELECT id, email, nombre, telefono, imagen_perfil FROM admin WHERE id = ?",
-      [adminId]
-    );
+    const admin = await obtenerAdminPorId(adminId);
 
-    if (rows.length === 0) {
+    if (!admin) {
       return res.status(404).json({ message: "Administrador no encontrado" });
     }
 
-    res.json(rows[0]);
+    res.json({
+      id: admin.id,
+      email: admin.email,
+      nombre: admin.nombre,
+      telefono: admin.telefono,
+      imagen_perfil: admin.imagen_perfil
+    });
   } catch (error) {
     console.error("Error en obtenerPerfil:", error);
     res.status(500).json({ message: "Error al obtener perfil" });
@@ -82,50 +91,31 @@ export const actualizarPerfil = async (req, res) => {
     const { nombre, telefono, imagen_perfil, email } = req.body;
 
     // Verificar que el admin existe
-    const [adminRows] = await pool.query("SELECT * FROM admin WHERE id = ?", [adminId]);
-    if (adminRows.length === 0) {
+    const adminExistente = await obtenerAdminPorId(adminId);
+    if (!adminExistente) {
       return res.status(404).json({ message: "Administrador no encontrado" });
     }
 
     // Verificar si el email ya está en uso por otro admin
-    if (email !== undefined) {
-      const [emailRows] = await pool.query("SELECT id FROM admin WHERE email = ? AND id != ?", [email, adminId]);
-      if (emailRows.length > 0) {
+    if (email !== undefined && email !== adminExistente.email) {
+      const adminConEmail = await obtenerAdminPorEmail(email);
+      if (adminConEmail && adminConEmail.id !== adminId) {
         return res.status(400).json({ message: "El email ya está en uso" });
       }
     }
 
     // Actualizar solo los campos proporcionados
-    const campos = [];
-    const valores = [];
+    const datosActualizar = {};
+    if (email !== undefined) datosActualizar.email = email;
+    if (nombre !== undefined) datosActualizar.nombre = nombre;
+    if (telefono !== undefined) datosActualizar.telefono = telefono;
+    if (imagen_perfil !== undefined) datosActualizar.imagen_perfil = imagen_perfil;
 
-    if (email !== undefined) {
-      campos.push("email = ?");
-      valores.push(email);
-    }
-    if (nombre !== undefined) {
-      campos.push("nombre = ?");
-      valores.push(nombre);
-    }
-    if (telefono !== undefined) {
-      campos.push("telefono = ?");
-      valores.push(telefono);
-    }
-    if (imagen_perfil !== undefined) {
-      campos.push("imagen_perfil = ?");
-      valores.push(imagen_perfil);
-    }
-
-    if (campos.length === 0) {
+    if (Object.keys(datosActualizar).length === 0) {
       return res.status(400).json({ message: "No se proporcionaron datos para actualizar" });
     }
 
-    valores.push(adminId);
-
-    await pool.query(
-      `UPDATE admin SET ${campos.join(", ")} WHERE id = ?`,
-      valores
-    );
+    await actualizarAdmin(adminId, datosActualizar);
 
     res.json({ message: "Perfil actualizado correctamente" });
   } catch (error) {
@@ -149,12 +139,10 @@ export const cambiarPassword = async (req, res) => {
     }
 
     // Obtener contraseña actual del admin
-    const [rows] = await pool.query("SELECT password FROM admin WHERE id = ?", [adminId]);
-    if (rows.length === 0) {
+    const admin = await obtenerAdminPorId(adminId);
+    if (!admin) {
       return res.status(404).json({ message: "Administrador no encontrado" });
     }
-
-    const admin = rows[0];
 
     // Verificar contraseña actual
     const esValido = await bcrypt.compare(password_actual, admin.password);
@@ -167,7 +155,7 @@ export const cambiarPassword = async (req, res) => {
     const passwordHash = await bcrypt.hash(password_nueva, salt);
 
     // Actualizar contraseña
-    await pool.query("UPDATE admin SET password = ? WHERE id = ?", [passwordHash, adminId]);
+    await actualizarAdmin(adminId, { password: passwordHash });
 
     res.json({ message: "Contraseña actualizada correctamente" });
   } catch (error) {
@@ -186,10 +174,10 @@ export const solicitarRecupero = async (req, res) => {
     }
 
     // Verificar si el email existe
-    const [rows] = await pool.query("SELECT id, email FROM admin WHERE email = ?", [email]);
+    const admin = await obtenerAdminPorEmail(email);
     
-    if (rows.length === 0) {
-      // Si el email no existe, no hacemos nada (por seguridad no revelamos si existe)
+    if (!admin) {
+      // Si el email no existe, no hacemos nada (por seguridad)
       return res.json({ message: "Si el email está registrado, recibirás un enlace para restablecer tu contraseña." });
     }
 
@@ -198,18 +186,22 @@ export const solicitarRecupero = async (req, res) => {
     const expiresAt = new Date(Date.now() + 3600000); // 1 hora
 
     // Eliminar tokens anteriores para este email
-    await pool.query("DELETE FROM password_resets WHERE email = ?", [email]);
+    const tokensAnteriores = await db.collection(PASSWORD_RESETS)
+      .where("email", "==", email)
+      .get();
+    
+    for (const doc of tokensAnteriores.docs) {
+      await doc.ref.delete();
+    }
 
     // Guardar nuevo token
-    await pool.query(
-      "INSERT INTO password_resets (email, token, expires_at) VALUES (?, ?, ?)",
-      [email, token, expiresAt]
-    );
+    await db.collection(PASSWORD_RESETS).add({
+      email,
+      token,
+      expiresAt: expiresAt.toISOString()
+    });
 
-    // Enviar email con el enlace de recupero
-    const emailEnviado = await enviarEmailRecupero(email, token);
-
-    // Siempre mostrar el enlace en consola para respaldo
+    // Mostrar enlace en consola
     console.log("═══════════════════════════════════════════");
     console.log("📧 ENLACE DE RECUPERO DE CONTRASEÑA:");
     console.log(`   http://localhost:5173/recuperar-password?token=${token}&email=${email}`);
@@ -234,12 +226,19 @@ export const verificarTokenRecupero = async (req, res) => {
     }
 
     // Verificar token
-    const [rows] = await pool.query(
-      "SELECT * FROM password_resets WHERE email = ? AND token = ? AND expires_at > NOW()",
-      [email, token]
-    );
+    const snapshot = await db.collection(PASSWORD_RESETS)
+      .where("email", "==", email)
+      .where("token", "==", token)
+      .get();
 
-    if (rows.length === 0) {
+    if (snapshot.empty) {
+      return res.status(400).json({ message: "Token inválido o expirado" });
+    }
+
+    // Verificar que no haya expirado
+    const doc = snapshot.docs[0];
+    const data = doc.data();
+    if (new Date(data.expiresAt) < new Date()) {
       return res.status(400).json({ message: "Token inválido o expirado" });
     }
 
@@ -264,12 +263,20 @@ export const restablecerPassword = async (req, res) => {
     }
 
     // Verificar token
-    const [rows] = await pool.query(
-      "SELECT * FROM password_resets WHERE email = ? AND token = ? AND expires_at > NOW()",
-      [email, token]
-    );
+    const snapshot = await db.collection(PASSWORD_RESETS)
+      .where("email", "==", email)
+      .where("token", "==", token)
+      .get();
 
-    if (rows.length === 0) {
+    if (snapshot.empty) {
+      return res.status(400).json({ message: "Token inválido o expirado" });
+    }
+
+    const doc = snapshot.docs[0];
+    const data = doc.data();
+    
+    // Verificar que no haya expirado
+    if (new Date(data.expiresAt) < new Date()) {
       return res.status(400).json({ message: "Token inválido o expirado" });
     }
 
@@ -278,10 +285,13 @@ export const restablecerPassword = async (req, res) => {
     const passwordHash = await bcrypt.hash(password_nueva, salt);
 
     // Actualizar contraseña
-    await pool.query("UPDATE admin SET password = ? WHERE email = ?", [passwordHash, email]);
+    const admin = await obtenerAdminPorEmail(email);
+    if (admin) {
+      await actualizarAdmin(admin.id, { password: passwordHash });
+    }
 
     // Eliminar token usado
-    await pool.query("DELETE FROM password_resets WHERE email = ?", [email]);
+    await doc.ref.delete();
 
     res.json({ message: "Contraseña restablecida correctamente. Ya puedes iniciar sesión." });
   } catch (error) {
@@ -289,4 +299,3 @@ export const restablecerPassword = async (req, res) => {
     res.status(500).json({ message: "Error al restablecer contraseña" });
   }
 };
-
