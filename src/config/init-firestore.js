@@ -11,6 +11,13 @@ const COLECCIONES = {
 export const inicializarFirestore = async () => {
   try {
     console.log("🔧 Verificando datos en Firestore...");
+    
+    if (!db) {
+      console.log("❌ db es null - Firebase Admin no está inicializado");
+      return;
+    }
+    
+    console.log("✅ db está disponible");
 
     // 1. Verificar si ya hay admin
     const adminSnapshot = await db.collection(COLECCIONES.ADMIN).limit(1).get();
@@ -42,6 +49,6 @@ export const inicializarFirestore = async () => {
 
     console.log("🎉 Firestore listo!");
   } catch (error) {
-    console.error("❌ Error al inicializar Firestore:", error);
+    console.error("❌ Error al inicializar Firestore:", error.message, error);
   }
 };
