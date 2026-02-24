@@ -1,6 +1,5 @@
-// Script para inicializar datos en Firestore
+// Script para inicializar datos en Firestore - simplificado
 import { db } from "./firebase-admin.js";
-import bcrypt from "bcrypt";
 
 const COLECCIONES = {
   ADMIN: "admin",
@@ -9,51 +8,44 @@ const COLECCIONES = {
 };
 
 export const inicializarFirestore = async () => {
+  if (!db) {
+    console.log("❌ Sin conexión a Firebase");
+    return;
+  }
+  
+  console.log("🔧 Iniciando...");
+  
   try {
-    console.log("🔧 Verificando datos en Firestore...");
+    // Crear admin directamente (sobrescribir si existe)
+    const hashAnterior = "$2b$10$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYuP8Z5KZq"; // hash de "123456"
     
-    if (!db) {
-      console.log("❌ db es null - Firebase Admin no está inicializado");
-      return;
+    // Intentar borrar admin existente
+    const existingAdmin = await db.collection(COLECCIONES.ADMIN).where("email", "==", "admin@gym.com").get();
+    if (!existingAdmin.empty) {
+      existingAdmin.forEach(doc => doc.ref.delete());
+      console.log("🗑️ Admin anterior borrado");
     }
     
-    console.log("✅ db está disponible");
-
-    // 1. Verificar si ya hay admin
-    const adminSnapshot = await db.collection(COLECCIONES.ADMIN).limit(1).get();
+    // Crear nuevo admin
+    const docRef = await db.collection(COLECCIONES.ADMIN).add({
+      email: "admin@gym.com",
+      password: hashAnterior,
+      nombre: "Administrador",
+      createdAt: new Date().toISOString()
+    });
+    console.log("✅ Admin creado! ID:", docRef.id);
     
-    if (adminSnapshot.empty) {
-      console.log("👤 Creando admin por defecto...");
-      const hash = await bcrypt.hash("123456", 10);
-      console.log("Password hash:", hash);
-      await db.collection(COLECCIONES.ADMIN).add({
-        email: "admin@gym.com",
-        password: hash,
-        nombre: "Administrador",
-        createdAt: new Date().toISOString()
-      });
-      console.log("✅ Admin creado: admin@gym.com / 123456");
-    } else {
-      console.log("✅ Admin ya existe");
-      // Mostrar los datos del admin para debug
-      adminSnapshot.forEach(doc => {
-        console.log("Admin data:", doc.data());
-      });
-    }
-
-    // 2. Verificar si hay configuración
-    const configSnapshot = await db.collection(COLECCIONES.CONFIG).limit(1).get();
-    if (configSnapshot.empty) {
+    // Crear configuración
+    const existingConfig = await db.collection(COLECCIONES.CONFIG).limit(1).get();
+    if (existingConfig.empty) {
       await db.collection(COLECCIONES.CONFIG).add({
         monto_cuota: 10000
       });
-      console.log("✅ Configuración inicial: $10.000");
-    } else {
-      console.log("✅ Configuración ya existe");
+      console.log("✅ Config creada");
     }
-
-    console.log("🎉 Firestore listo!");
+    
+    console.log("🎉 Todo listo!");
   } catch (error) {
-    console.error("❌ Error al inicializar Firestore:", error.message, error.stack);
+    console.error("❌ Error:", error.message);
   }
 };
