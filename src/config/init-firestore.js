@@ -1,14 +1,12 @@
-// Script para inicializar datos en Firestore - versión simplificada sin bcrypt
+// Script para inicializar datos en Firestore
 import { db } from "./firebase-admin.js";
+import bcrypt from "bcrypt";
 
 const COLECCIONES = {
   ADMIN: "admin",
   CONFIG: "configuracion",
   PAGOS: "pagos"
 };
-
-// Contraseña pre-hasheada para desarrollo
-const DEFAULT_PASSWORD_HASH = "$2b$10$kxZ2vL5vL5vL5vL5vL5vO.1t5t5t5t5t5t5t5t5t5t5t5t5t5t5t5t5";
 
 export const inicializarFirestore = async () => {
   try {
@@ -26,15 +24,21 @@ export const inicializarFirestore = async () => {
     
     if (adminSnapshot.empty) {
       console.log("👤 Creando admin por defecto...");
+      const hash = await bcrypt.hash("123456", 10);
+      console.log("Password hash:", hash);
       await db.collection(COLECCIONES.ADMIN).add({
         email: "admin@gym.com",
-        password: DEFAULT_PASSWORD_HASH,
+        password: hash,
         nombre: "Administrador",
         createdAt: new Date().toISOString()
       });
       console.log("✅ Admin creado: admin@gym.com / 123456");
     } else {
       console.log("✅ Admin ya existe");
+      // Mostrar los datos del admin para debug
+      adminSnapshot.forEach(doc => {
+        console.log("Admin data:", doc.data());
+      });
     }
 
     // 2. Verificar si hay configuración
