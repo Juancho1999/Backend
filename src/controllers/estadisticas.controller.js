@@ -1,4 +1,4 @@
-import { obtenerTodosPagos, obtenerPagosPorAnio, obtenerAniosConPagos, obtenerMesesPorAnio } from "../config/firestore.js";
+import { obtenerTodosPagos, obtenerPagosPorAnio, getAniosConPagos, getMesesPorAnio } from "../config/firestore.js";
 
 // 👉 Obtener estadísticas anuales
 export const obtenerEstadisticas = async (req, res) => {

@@ -1,6 +1,6 @@
 // src/controllers/pagos.controller.js
 import { 
-  obtenerPagosPorMes, 
+  getPagosPorMes, 
   crearPago, 
   eliminarPago,
   obtenerTodosPagos,
@@ -20,7 +20,7 @@ export const agregarPago = async (req, res) => {
     }
 
     // 1. Verificar si ya existe un pago para este socio en este mes
-    const pagosMes = await obtenerPagosPorMes(mes);
+    const pagosMes = await getPagosPorMes(mes);
     const pagoExistente = pagosMes.find(p => p.nombre === nombre);
 
     if (pagoExistente) {
@@ -53,7 +53,7 @@ export const obtenerPagosPorMes = async (req, res) => {
     const { mes } = req.params;
 
     // 1. Traemos todos los pagos de ese mes
-    const pagos = await obtenerPagosPorMes(mes);
+    const pagos = await getPagosPorMes(mes);
 
     // 2. Calcular totales
     const totalRecaudado = pagos.reduce((acc, pago) => acc + (parseFloat(pago.monto) || 0), 0);

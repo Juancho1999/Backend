@@ -1,9 +1,9 @@
-import { obtenerTodosPagos, obtenerAniosConPagos as getAnios, obtenerMesesPorAnio as getMeses } from "../config/firestore.js";
+import { obtenerTodosPagos, getAniosConPagos, getMesesPorAnio } from "../config/firestore.js";
 
 // 👉 Obtener años con pagos
 export const obtenerAniosConPagos = async (req, res) => {
   try {
-    const anios = await getAnios();
+    const anios = await getAniosConPagos();
     res.json(anios);
   } catch (error) {
     console.error("Error en obtenerAniosConPagos:", error);
@@ -15,7 +15,7 @@ export const obtenerAniosConPagos = async (req, res) => {
 export const obtenerMesesPorAnio = async (req, res) => {
   try {
     const { anio } = req.params;
-    const meses = await getMeses(anio);
+    const meses = await getMesesPorAnio(anio);
     res.json(meses);
   } catch (error) {
     console.error("Error en obtenerMesesPorAnio:", error);

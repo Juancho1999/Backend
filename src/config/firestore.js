@@ -74,7 +74,7 @@ export const actualizarConfiguracion = async (monto_cuota) => {
 
 // ============ PAGOS ============
 
-export const obtenerPagosPorMes = async (mes) => {
+export const getPagosPorMes = async (mes) => {
   const snapshot = await db.collection(COLECCIONES.PAGOS)
     .where("mes", "==", mes)
     .get();
@@ -145,13 +145,13 @@ export const obtenerEstadisticas = async () => {
 // ============ REPORTES ============
 
 export const obtenerPagosPorAnio = async (anio) => {
-  const pagos = await obtenerTodosPagos();
+  const pagos = await obtenerTodosLosPagos();
   
   return pagos.filter(p => p.mes && p.mes.startsWith(String(anio)));
 };
 
-export const obtenerAniosConPagos = async () => {
-  const pagos = await obtenerTodosPagos();
+export const getAniosConPagos = async () => {
+  const pagos = await obtenerTodosLosPagos();
   
   const anios = new Set();
   pagos.forEach(p => {
@@ -163,7 +163,7 @@ export const obtenerAniosConPagos = async () => {
   return Array.from(anios).sort().reverse();
 };
 
-export const obtenerMesesPorAnio = async (anio) => {
+export const getMesesPorAnio = async (anio) => {
   const pagos = await obtenerPagosPorAnio(anio);
   
   const meses = new Set();
