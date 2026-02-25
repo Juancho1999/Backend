@@ -14,7 +14,8 @@ const allowedOrigins = [
   "http://localhost:5173",         // React local
   "https://viggo-gym.netlify.app",  // Frontend en Netlify
   "https://backend-production-08b3.up.railway.app",  // Backend en Railway
-  "https://backend-nine-sigma-24.vercel.app"  // Backend en Vercel
+  "https://backend-nine-sigma-24.vercel.app",  // Backend en Vercel
+  "https://backend-jz4ljhl6q-juans-projects-fd1bd95b.vercel.app"  // Otro backend en Vercel
 ];
 
 const app = express();
