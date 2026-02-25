@@ -17,7 +17,7 @@ export const inicializarFirestore = async () => {
   
   try {
     // Crear admin directamente (sobrescribir si existe)
-    const hashAnterior = "$2b$10$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYuP8Z5KZq"; // hash de "123456"
+    const hashAnterior = "$2b$10$Rdvn6.sDO/jwfMXn2r32lO43bKqMPQjTP4.PqBHH1IBvHOqgA2432"; // hash de "123456"
     
     // Intentar borrar admin existente
     const existingAdmin = await db.collection(COLECCIONES.ADMIN).where("email", "==", "admin@gym.com").get();
